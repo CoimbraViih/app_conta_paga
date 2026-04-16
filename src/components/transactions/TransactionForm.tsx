@@ -71,33 +71,42 @@ export default function TransactionForm({ open, onClose, onSuccess, transaction 
     }
 
     setLoading(true)
-    const supabase = createClient()
+    try {
+      const supabase = createClient()
 
-    const payload = {
-      type: form.type,
-      amount,
-      description: form.description,
-      category: form.category,
-      date: form.date,
+      const payload = {
+        type: form.type,
+        amount,
+        description: form.description,
+        category: form.category,
+        date: form.date,
+      }
+
+      let error
+      if (transaction) {
+        ;({ error } = await supabase.from('transactions').update(payload).eq('id', transaction.id))
+      } else {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (!user) {
+          toast.error('Sessão expirada. Faça login novamente.')
+          setLoading(false)
+          return
+        }
+        ;({ error } = await supabase.from('transactions').insert({ ...payload, user_id: user.id }))
+      }
+
+      if (error) {
+        toast.error('Erro ao salvar: ' + error.message)
+      } else {
+        toast.success(transaction ? 'Transação atualizada!' : 'Transação adicionada!')
+        onSuccess()
+        onClose()
+      }
+    } catch (err) {
+      toast.error('Erro inesperado: ' + (err instanceof Error ? err.message : String(err)))
+    } finally {
+      setLoading(false)
     }
-
-    let error
-    if (transaction) {
-      ;({ error } = await supabase.from('transactions').update(payload).eq('id', transaction.id))
-    } else {
-      const { data: { user } } = await supabase.auth.getUser()
-      ;({ error } = await supabase.from('transactions').insert({ ...payload, user_id: user!.id }))
-    }
-
-    if (error) {
-      toast.error('Erro ao salvar: ' + error.message)
-    } else {
-      toast.success(transaction ? 'Transação atualizada!' : 'Transação adicionada!')
-      onSuccess()
-      onClose()
-    }
-
-    setLoading(false)
   }
 
   return (

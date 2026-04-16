@@ -35,10 +35,17 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Redirect unauthenticated users to login
-  if (!user && !pathname.startsWith('/auth')) {
+  // Redirect unauthenticated users to login (landing page "/" is public)
+  if (!user && !pathname.startsWith('/auth') && pathname !== '/') {
     const url = request.nextUrl.clone()
     url.pathname = '/auth/login'
+    return NextResponse.redirect(url)
+  }
+
+  // Redirect authenticated users from landing page to dashboard
+  if (user && pathname === '/') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/dashboard'
     return NextResponse.redirect(url)
   }
 

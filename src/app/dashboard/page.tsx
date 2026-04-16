@@ -10,45 +10,49 @@ import SummaryCards from '@/components/dashboard/SummaryCards'
 import ExpenseChart from '@/components/dashboard/ExpenseChart'
 import RecentTransactions from '@/components/dashboard/RecentTransactions'
 import TransactionForm from '@/components/transactions/TransactionForm'
+import PeriodFilter, { FilterPeriod, currentMonthPeriod } from '@/components/PeriodFilter'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Plus } from 'lucide-react'
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
 
 export default function DashboardPage() {
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [compareTransactions, setCompareTransactions] = useState<Transaction[]>([])
   const [loading, setLoading] = useState(true)
-  const [month, setMonth] = useState(format(new Date(), 'yyyy-MM'))
+  const [period, setPeriod] = useState<FilterPeriod>(() => currentMonthPeriod())
   const [formOpen, setFormOpen] = useState(false)
 
-  const fetchTransactions = useCallback(async () => {
-    setLoading(true)
+  const fetchRange = useCallback(async (from: string, to: string) => {
     const supabase = createClient()
-    const [year, mon] = month.split('-')
-    const from = `${year}-${mon}-01`
-    const to = `${year}-${mon}-31`
-
     const { data, error } = await supabase
       .from('transactions')
       .select('*')
       .gte('date', from)
       .lte('date', to)
       .order('date', { ascending: false })
-
-    if (!error && data) setTransactions(data)
-    setLoading(false)
-  }, [month])
+    if (error) console.error('Erro ao buscar transações:', error)
+    return data ?? []
+  }, [])
 
   useEffect(() => {
-    fetchTransactions()
-  }, [fetchTransactions])
+    setLoading(true)
+    const run = async () => {
+      const [primary, compare] = await Promise.all([
+        fetchRange(period.from, period.to),
+        period.compareFrom && period.compareTo
+          ? fetchRange(period.compareFrom, period.compareTo)
+          : Promise.resolve([]),
+      ])
+      setTransactions(primary)
+      setCompareTransactions(compare)
+      setLoading(false)
+    }
+    run()
+  }, [period, fetchRange])
 
-  const income = transactions.filter((t) => t.type === 'income').reduce((sum, t) => sum + t.amount, 0)
-  const expenses = transactions.filter((t) => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0)
-
-  const [year, mon] = month.split('-')
-  const monthLabel = format(new Date(Number(year), Number(mon) - 1, 1), "MMMM 'de' yyyy", { locale: ptBR })
+  const income = transactions.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+  const expenses = transactions.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+  const cmpIncome = compareTransactions.filter((t) => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+  const cmpExpenses = compareTransactions.filter((t) => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
 
   return (
     <AppShell>
@@ -57,15 +61,10 @@ export default function DashboardPage() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-xl font-bold">Dashboard</h1>
-            <p className="text-sm text-muted-foreground capitalize">{monthLabel}</p>
+            <p className="text-sm text-muted-foreground capitalize">{period.label}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Input
-              type="month"
-              value={month}
-              onChange={(e) => setMonth(e.target.value)}
-              className="w-40"
-            />
+            <PeriodFilter value={period} onChange={setPeriod} />
             <Button size="sm" className="gap-2 shrink-0" onClick={() => setFormOpen(true)}>
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">Nova transação</span>
@@ -80,7 +79,13 @@ export default function DashboardPage() {
           </div>
         ) : (
           <div className="flex flex-col gap-6">
-            <SummaryCards income={income} expenses={expenses} />
+            <SummaryCards
+              income={income}
+              expenses={expenses}
+              compareIncome={period.mode === 'compare' ? cmpIncome : undefined}
+              compareExpenses={period.mode === 'compare' ? cmpExpenses : undefined}
+              compareLabel={period.compareLabel}
+            />
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <ExpenseChart transactions={transactions} />
@@ -93,7 +98,13 @@ export default function DashboardPage() {
       <TransactionForm
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        onSuccess={fetchTransactions}
+        onSuccess={() => {
+          setLoading(true)
+          fetchRange(period.from, period.to).then((data) => {
+            setTransactions(data)
+            setLoading(false)
+          })
+        }}
         transaction={null}
       />
     </AppShell>
